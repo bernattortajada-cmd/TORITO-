@@ -3,46 +3,53 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>TORITO — estilo original + #30D5C8 + audio instantáneo</title>
+<title>TORITO — instantáneo + brillante</title>
 <style>
-  :root{--bg:#000;--fg:#30D5C8}
+  :root{--bg:#000;--accent:#30D5C8}
   *{box-sizing:border-box}
-  html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--accent);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu}
   .wrap{min-height:100vh;display:grid;place-items:center;padding:16px}
   .stage{position:relative;width:min(94vw,560px);aspect-ratio:9/16;border-radius:20px;overflow:hidden;background:#000;box-shadow:0 18px 48px rgba(0,0,0,.5)}
-  /* Cámara espejo (selfie natural) */
+  /* Cámara espejo (selfie) natural */
   video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:1;transform:scaleX(-1)}
   canvas{position:absolute;inset:0;width:100%;height:100%}
+  /* Overlay de arranque */
   .overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);z-index:9;text-align:center;cursor:pointer}
   .cta{background:#ffffff12;border:1px solid #ffffff2d;color:#fff;padding:14px 18px;border-radius:14px;font-size:16px;backdrop-filter:blur(6px)}
+  /* HUD */
   .hud{position:absolute;left:10px;right:10px;bottom:10px;display:flex;justify-content:space-between;font-size:12px;opacity:.95}
   .pill{border:1px solid #2c2c30;background:#141417;padding:6px 10px;border-radius:999px}
   .log{max-width:560px;width:100%;margin-top:12px;background:#0e0e11;border:1px solid #26262b;border-radius:12px;padding:10px;font-size:12px;line-height:1.35;white-space:pre-wrap}
   .ok{color:#9BEF8A}.warn{color:#FFD166}.err{color:#FF6B6B}
 
-  /* Texto multi-fuente color #30D5C8 */
+  /* Texto multi-fuente #30D5C8 — sin fades (instantáneo) */
   #toritoText{
-    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:0.08em;flex-wrap:wrap;
-    padding:0 8%; text-align:center; opacity:0; transform:translateY(6px);
-    transition:opacity .4s ease, transform .4s ease, filter .2s ease;
+    position:absolute;inset:0;display:none; /* oculto por defecto, aparece sin transición */
+    align-items:center;justify-content:center;gap:0.08em;flex-wrap:wrap;
+    padding:0 8%; text-align:center;
     mix-blend-mode:screen; pointer-events:none;
+    filter: saturate(1.85) brightness(1.22); /* más “neón” */
   }
-  #toritoText.show{opacity:1; transform:translateY(0); animation:breathe 4s ease-in-out infinite}
+  #toritoText.show{display:flex;} /* aparece de golpe */
+
   .char{
     font-size:clamp(24px, 4.5vw, 42px);
-    line-height:1.05; color:#30D5C8; display:inline-block;
-    text-shadow:0 1px 0 rgba(0,0,0,.25), 0 0 18px rgba(48,213,200,.2);
+    line-height:1.05; color:var(--accent); display:inline-block; text-transform:lowercase;
+    /* Glow más fuerte y nítido */
+    text-shadow:
+      0 0 1px rgba(48,213,200,0.85),
+      0 0 6px rgba(48,213,200,0.55),
+      0 0 18px rgba(48,213,200,0.35);
   }
-  @keyframes breathe{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
-  /* FX pulso */
-  .fx{position:absolute;inset:0;pointer-events:none;z-index:8;opacity:0;transition:opacity .18s ease, filter .18s ease, transform .18s ease;
+
+  /* FX de activación (pulso corto) — lo mantenemos sutil */
+  .fx{position:absolute;inset:0;pointer-events:none;z-index:8;opacity:0;
     background: radial-gradient(ellipse at center, rgba(255,255,255,.10) 0%, rgba(255,255,255,0) 38%),
                 radial-gradient(ellipse at center, rgba(0,0,0,0) 60%, rgba(0,0,0,.35) 100%);
     mix-blend-mode:screen;}
-  .stage.active .fx{opacity:.85;filter:brightness(1.08) contrast(1.06) saturate(1.12);
-    animation:pulse 600ms ease-out forwards, jitter 220ms ease-in-out 0s 1;}
-  @keyframes pulse{0%{opacity:.0;}30%{opacity:.95;}100%{opacity:.25;}}
-  @keyframes jitter{0%,100%{transform:translate(0,0)}30%{transform:translate(0.6px,-0.6px)}60%{transform:translate(-0.6px,0.6px)}}
+  .stage.active .fx{opacity:.75;animation:pulse 420ms ease-out 1, jitter 160ms ease-in-out 1;}
+  @keyframes pulse{0%{opacity:0}30%{opacity:.9}100%{opacity:.2}}
+  @keyframes jitter{0%,100%{transform:translate(0,0)}40%{transform:translate(0.6px,-0.6px)}80%{transform:translate(-0.6px,0.6px)}}
 </style>
 </head>
 <body>
@@ -51,11 +58,14 @@
     <video id="cam" playsinline autoplay muted></video>
     <canvas id="viz"></canvas>
     <div class="fx" id="fx"></div>
+
     <div class="overlay" id="ovl"><div class="cta">Toca para activar cámara + audio</div></div>
+
     <div class="hud">
       <div class="pill" id="state">estado: idle</div>
       <div class="pill" id="meters">cuernos: —</div>
     </div>
+
     <div id="toritoText" aria-hidden="true"></div>
   </div>
   <div class="log" id="log"></div>
@@ -65,14 +75,19 @@
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic@0.5/holistic.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js"></script>
 <script>
+/* ===== util de log ===== */
 const logEl=document.getElementById('log');
 function log(m,c=''){const d=document.createElement('div');d.className=c;d.textContent=m;logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight;}
 
-const video=document.getElementById('cam'), stage=document.getElementById('stage'),
-ovl=document.getElementById('ovl'), stateEl=document.getElementById('state'),
-metersEl=document.getElementById('meters'), textWrap=document.getElementById('toritoText');
+/* ===== elementos ===== */
+const video=document.getElementById('cam');
+const stage=document.getElementById('stage');
+const ovl=document.getElementById('ovl');
+const stateEl=document.getElementById('state');
+const metersEl=document.getElementById('meters');
+const textWrap=document.getElementById('toritoText');
 
-/* texto multi-fuente minúscula #30D5C8 */
+/* ===== texto multi-fuente minúscula #30D5C8 ===== */
 const phrase="soy un torito bravo";
 const fonts=[
   'Arial, sans-serif','Helvetica, Arial, sans-serif','"Times New Roman", Times, serif',
@@ -94,11 +109,11 @@ function buildText(){
 }
 buildText();
 
-/* audio: retrigger + apagado instantáneo */
+/* ===== audio: retrigger + on/off ultra rápidos ===== */
 let actx, masterGain, bufferTorito=null, loopGain=null, currentSource=null, audioReady=false;
 function ctx(){return actx||(actx=new (window.AudioContext||window.webkitAudioContext)());}
 function ensureMaster(){const c=ctx(); if(!masterGain){masterGain=c.createGain();masterGain.gain.value=0;masterGain.connect(c.destination);} return masterGain;}
-function ramp(param,to,t=.12){const c=ctx();const n=c.currentTime;param.cancelScheduledValues(n);param.setValueAtTime(param.value,n);param.linearRampToValueAtTime(to,n+t);}
+function ramp(param,to,t=0.03){const c=ctx();const n=c.currentTime;param.cancelScheduledValues(n);param.setValueAtTime(param.value,n);param.linearRampToValueAtTime(to,n+t);}
 async function loadTorito(){
   for(const ext of ['wav','mp3']){
     try{
@@ -122,7 +137,7 @@ function stopTorito(){
   currentSource=null;
 }
 
-/* Holistic: gesto de cuernos */
+/* ===== Holistic: gesto de cuernos ===== */
 let holistic, started=false, horns=false, hornFrames=0, noHornFrames=0;
 const LM={NOSE:1, CHIN:152, EYE_L_TOP:159, EYE_R_TOP:386, HAND_INDEX_TIP:8, HAND_INDEX_PIP:6};
 function isPointingUp(pip,tip){if(!pip||!tip)return false;const dx=tip.x-pip.x,dy=tip.y-pip.y;return (dy<-Math.abs(dx)*0.6);}
@@ -145,24 +160,27 @@ function onResults(res){
   if(detected!==horns){
     horns=detected;
     stateEl.textContent='estado: '+(horns?'TORITO ON':'idle');
+
     if(horns){
+      // ACTIVAR — mínimo posible
       startToritoFromZero();
-      ramp(ensureMaster().gain,0.95,.1);
-      if(loopGain) ramp(loopGain.gain,0.9,.1);
-      textWrap.classList.add('show');
-      stage.classList.add('active');
+      ramp(ensureMaster().gain,0.95,0.03);
+      if(loopGain) ramp(loopGain.gain,0.95,0.03);
+      textWrap.classList.add('show');     // aparece de golpe (sin transición)
+      stage.classList.add('active');      // pulso corto
     }else{
-      if(loopGain) ramp(loopGain.gain,0.0,.05);
-      ramp(ensureMaster().gain,0.0,.05);
-      setTimeout(stopTorito,100);
-      textWrap.classList.remove('show');
+      // DESACTIVAR — mínimo posible
+      if(loopGain) ramp(loopGain.gain,0.0,0.03);
+      ramp(ensureMaster().gain,0.0,0.03);
+      setTimeout(stopTorito,40);
+      textWrap.classList.remove('show');  // desaparece de golpe
       stage.classList.remove('active');
     }
   }
   metersEl.textContent='cuernos: '+(horns?'sí':'no');
 }
 
-/* Start */
+/* ===== start ===== */
 async function start(){
   if(started)return;started=true;
   try{
@@ -174,7 +192,7 @@ async function start(){
     holistic.setOptions({modelComplexity:1,smoothLandmarks:true,refineFaceLandmarks:true,minDetectionConfidence:.6,minTrackingConfidence:.6});
     holistic.onResults(onResults);
     new Camera(video,{onFrame:async()=>{await holistic.send({image:video});}}).start();
-    log('Listo: gesto de cuernos activa sonido instantáneo y texto','ok');
+    log('Listo: gesto de cuernos con audio instantáneo y texto brillante','ok');
   }catch(e){
     log('Error start: '+(e?.message||e),'err');
     ovl.style.display='flex';ovl.querySelector('.cta').textContent='Reintentar';started=false;
