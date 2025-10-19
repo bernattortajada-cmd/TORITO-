@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>TORITO — gesto de cuernos</title>
+<style>
+  :root{--bg:#0a0a0b;--fg:#e8e8ec}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);
+    font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu}
+  .wrap{min-height:100vh;display:grid;place-items:center;padding:16px}
+  .stage{position:relative;width:min(94vw,560px);aspect-ratio:9/16;border-radius:20px;
+    overflow:hidden;background:#000;box-shadow:0 18px 48px rgba(0,0,0,.5)}
+  video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);opacity:.18}
+  canvas{position:absolute;inset:0;width:100%;height:100%}
+  .overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    background:rgba(0,0,0,.55);z-index:9;text-align:center;cursor:pointer}
+  .cta{background:#ffffff12;border:1px solid #ffffff2d;color:#fff;padding:14px 18px;border-radius:14px;
+    font-size:16px;backdrop-filter:blur(6px)}
+  .hud{position:absolute;left:10px;right:10px;bottom:10px;display:flex;justify-content:space-between;font-size:12px;opacity:.9}
+  .pill{border:1px solid #2c2c30;background:#141417;padding:6px 10px;border-radius:999px}
+  .log{max-width:560px;width:100%;margin-top:12px;background:#0e0e11;border:1px solid #26262b;border-radius:12px;
+    padding:10px;font-size:12px;line-height:1.35;white-space:pre-wrap}
+  .ok{color:#9BEF8A}.warn{color:#FFD166}.err{color:#FF6B6B}
+
+  /* Texto multi-fuente */
+  #toritoText{
+    position:absolute;inset:auto 12px 64px 12px;display:flex;gap:2px;justify-content:center;flex-wrap:wrap;
+    opacity:0;transform:translateY(6px);transition:opacity .5s ease, transform .5s ease;
+    mix-blend-mode:screen;text-shadow:0 1px 0 rgba(0,0,0,.25)
+  }
+  #toritoText.show{opacity:1;transform:translateY(0);animation:breathe 4.2s ease-in-out infinite}
+  .char{
+    font-size:20px;line-height:1.2;color:#f0f0f4;display:inline-block;
+    transform:translateY(0);transition:transform .3s ease;
+  }
+  @keyframes breathe{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="stage" id="stage">
+    <video id="cam" playsinline autoplay muted></video>
+    <canvas id="viz"></canvas>
+
+    <div class="overlay" id="ovl"><div class="cta">Toca para activar cámara + audio</div></div>
+
+    <div class="hud">
+      <div class="pill" id="state">estado: idle</div>
+      <div class="pill" id="meters">cuernos: —</div>
+    </div>
+
+    <!-- Texto con letras de múltiples tipografías -->
+    <div id="toritoText" aria-hidden="true"></div>
+  </div>
+  <div class="log" id="log"></div>
+</div>
+
+<!-- MediaPipe Holistic -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic@0.5/holistic.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js"></script>
+
+<script>
+/* === util de log === */
+const logEl=document.getElementById('log');
+function log(m,c=''){const d=document.createElement('div');d.className=c;d.textContent=m;logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight;}
+
+/* === elementos === */
+const video=document.getElementById('cam');
+const canvas=document.getElementById('viz');
+const ctx2d=canvas.getContext('2d');
+const stage=document.getElementById('stage');
+const ovl=document.getElementById('ovl');
+const stateEl=document.getElementById('state');
+const metersEl=document.getElementById('meters');
+const textWrap=document.getElementById('toritoText');
+
+/* === texto multi-fuente === */
+const phrase = "soy un torito bravo";
+const fonts = [
+  'Arial, sans-serif',
+  'Helvetica, Arial, sans-serif',
+  '"Times New Roman", Times, serif',
+  'Georgia, serif',
+  '"Courier New", Courier, monospace',
+  'Verdana, Geneva, sans-serif',
+  '"Trebuchet MS", Arial, sans-serif',
+  'Garamond, serif',
+  'Palatino, "Palatino Linotype", serif',
+  '"Lucida Sans Unicode","Lucida Grande", sans-serif',
+  'Impact, Charcoal, sans-serif'
+];
+function buildText(){
+  textWrap.innerHTML='';
+  let i=0;
+  for(const ch of phrase){
+    const span=document.createElement('span');
+    span.className='char';
+    span.style.fontFamily=fonts[i % fonts.length];
+    span.textContent=ch;
+    textWrap.appendChild(span);
+    i++;
+  }
+}
+buildText();
+
+/* === audio (un solo loop) === */
+let actx, masterGain, loopNode=null, loopGain=null, audioReady=false;
+function ctx(){return actx||(actx=new (window.AudioContext||window.webkitAudioContext)());}
+function ensureMaster(){
+  const c=ctx();
+  if(!masterGain){masterGain=c.createGain();masterGain.gain.value=0;masterGain.connect(c.destination);}
+  return masterGain;
+}
+async function loadTorito(){
+  for(const ext of ['wav','mp3']){
+    try{
+      const r=await fetch(`assets/torito_vocal.${ext}`,{cache:'no-store'});
+      if(!r.ok) continue;
+      const a=await r.arrayBuffer();
+      const b=await ctx().decodeAudioData(a);
+      const src=ctx().createBufferSource(); src.buffer=b; src.loop=true;
+      loopGain=ctx().createGain(); loopGain.gain.value=0;
+      src.connect(loopGain).connect(ensureMaster()); src.start();
+      loopNode=src; audioReady=true; log('Audio cargado: torito_vocal.'+ext,'ok');
+      return;
+    }catch(e){ log('Decode falló ('+ext+'): '+(e.message||e),'warn'); }
+  }
+  throw new Error('No pude cargar torito_vocal (.wav/.mp3)');
+}
+function ramp(param,to,t=0.30){const c=ctx();const n=c.currentTime;param.cancelScheduledValues(n);param.setValueAtTime(param.value,n);param.linearRampToValueAtTime(to,n+t);}
+
+/* === visual bg (suave) === */
+function drawBG(){
+  const w=canvas.width=stage.clientWidth*2,h=canvas.height=stage.clientHeight*2;
+  const cx=ctx2d;
+  const grd=cx.createRadialGradient(w*.5,h*.38,w*.08,w*.5,h*.62,Math.max(w,h)*.8);
+  grd.addColorStop(0,'hsla(210,38%,70%,.22)');
+  grd.addColorStop(1,'hsla(300,18%,10%,.95)');
+  cx.fillStyle=grd; cx.fillRect(0,0,w,h);
+}
+
+/* === detección gesto "cuernos" con Holistic ===
+   Regla: ambas puntas de índice (8) por encima de los ojos y a izquierda/derecha de la cabeza.
+   Además, vector (PIP6 → TIP8) apuntando hacia arriba (dy negativo dominante).
+*/
+let holistic, started=false, horns=false, hornFrames=0, noHornFrames=0;
+const LM = {
+  NOSE:1, CHIN:152, EYE_L_TOP:159, EYE_R_TOP:386,
+  HAND_INDEX_TIP:8, HAND_INDEX_PIP:6
+};
+
+function isPointingUp(pip, tip){
+  if(!pip || !tip) return false;
+  const dx = tip.x - pip.x, dy = tip.y - pip.y;
+  return (dy < -Math.abs(dx)*0.6); // mayormente hacia arriba
+}
+
+function hornsHeuristic(res){
+  const face = res.faceLandmarks;
+  const left = res.leftHandLandmarks;
+  const right = res.rightHandLandmarks;
+  if(!face || !left || !right) return false;
+
+  // escala de cabeza
+  const nose = face[LM.NOSE], chin = face[LM.CHIN];
+  const headScale = Math.hypot(nose.x-chin.x, nose.y-chin.y);
+  if(!headScale) return false;
+
+  // altura de ojos
+  const eyeY = (face[LM.EYE_L_TOP].y + face[LM.EYE_R_TOP].y)/2;
+
+  // índice izq / der
+  const li_tip = left[LM.HAND_INDEX_TIP], li_pip = left[LM.HAND_INDEX_PIP];
+  const ri_tip = right[LM.HAND_INDEX_TIP], ri_pip = right[LM.HAND_INDEX_PIP];
+  if(!li_tip || !ri_tip) return false;
+
+  // ambas puntas por encima de los ojos
+  const leftAbove = li_tip.y < eyeY - 0.02*headScale;
+  const rightAbove = ri_tip.y < eyeY - 0.02*headScale;
+
+  // posiciones laterales respecto a nariz (x de cámara espejo)
+  const leftSide  = li_tip.x > nose.x + 0.08*headScale;   // mano izquierda (en espejo) queda a la derecha
+  const rightSide = ri_tip.x < nose.x - 0.08*headScale;
+
+  // vector apuntando hacia arriba
+  const leftUp  = isPointingUp(li_pip, li_tip);
+  const rightUp = isPointingUp(ri_pip, ri_tip);
+
+  return leftAbove && rightAbove && leftSide && rightSide && leftUp && rightUp;
+}
+
+function onResults(res){
+  drawBG();
+
+  // gesto con histéresis
+  if(hornsHeuristic(res)){
+    hornFrames++; noHornFrames=0;
+  }else{
+    noHornFrames++; hornFrames=0;
+  }
+  // necesita mantenerse unos frames para evitar falsos positivos
+  const detected = hornFrames>5 ? true : (noHornFrames>6 ? false : horns);
+  if(detected !== horns){
+    horns = detected;
+    stateEl.textContent = 'estado: ' + (horns ? 'TORITO ON' : 'idle');
+    // audio + texto
+    if(audioReady && loopGain){
+      ramp(ensureMaster().gain, horns?0.95:0.0, 0.25);
+      ramp(loopGain.gain,       horns?0.85:0.0, 0.25);
+    }
+    textWrap.classList.toggle('show', horns);
+  }
+  metersEl.textContent = 'cuernos: ' + (horns ? 'sí' : 'no');
+}
+
+/* === start === */
+async function start(){
+  if(started) return; started=true;
+  try{
+    // audio primero (mismo gesto)
+    ctx(); ensureMaster(); await actx.resume();
+
+    // preparar audio (arranca en silencio)
+    await loadTorito();
+
+    // cámara
+    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:720},height:{ideal:1280}},audio:false});
+    video.srcObject=stream; await video.play(); ovl.style.display='none'; log('Cámara OK ✅','ok');
+
+    // Holistic
+    holistic = new Holistic({locateFile:(f)=>`https://cdn.jsdelivr.net/npm/@mediapipe/holistic@0.5/${f}`});
+    holistic.setOptions({
+      modelComplexity: 1,
+      smoothLandmarks: true,
+      refineFaceLandmarks: true,
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.6
+    });
+    holistic.onResults(onResults);
+
+    // loop de frames
+    new Camera(video, { onFrame: async () => { await holistic.send({image: video}); } }).start();
+
+    stateEl.textContent='estado: idle';
+    log('Audio listo ✅ (esperando gesto de cuernos)','ok');
+  }catch(e){
+    log('Error start: '+(e?.message||e),'err');
+    ovl.style.display='flex';
+    ovl.querySelector('.cta').textContent='Reintentar';
+    started=false;
+  }
+}
+
+document.getElementById('ovl').addEventListener('click', start);
+stage.addEventListener('click', (e)=>{ if(ovl.style.display!=='none') start(); });
+
+// primer fondo
+drawBG();
+log('Tip: coloca ambas manos con los índices a modo “cuernos” por encima de la cabeza 🫰🐂','warn');
+</script>
+</body>
+</html>
